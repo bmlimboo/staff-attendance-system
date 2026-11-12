@@ -86,6 +86,23 @@ if (is_post()) {
         redirect('/admin/users.php');
     }
 
+    if ($action === 'set_role') {
+        $role = post('role');
+        $t = q('SELECT * FROM users WHERE id = ?', [$id])->fetch();
+        if (!$t || !isset(ROLE_LABELS[$role])) {
+            flash('error', 'Invalid user or role.');
+        } elseif ($t['role'] === 'sysadmin' && $role !== 'sysadmin' && $t['active'] && active_sysadmins() <= 1) {
+            flash('error', 'You cannot demote the last active System Administrator.');
+        } elseif ($role === 'hod' && !$t['department_id']) {
+            flash('error', 'Link ' . $t['name'] . ' to a department first (Edit), then make them Head of Department.');
+        } else {
+            q('UPDATE users SET role = ? WHERE id = ?', [$role, $id]);
+            audit('user_role', $t['email'] . ' -> ' . $role);
+            flash('ok', $t['name'] . ' is now ' . role_label($role) . '.');
+        }
+        redirect('/admin/users.php?q=' . urlencode(post('q')));
+    }
+
     if ($action === 'delete') {
         $t = q('SELECT * FROM users WHERE id = ?', [$id])->fetch();
         $n = (int)q('SELECT COUNT(*) c FROM attendance WHERE user_id = ?', [$id])->fetch()['c'];
@@ -93,14 +110,14 @@ if (is_post()) {
             flash('error', 'User not found.');
         } elseif ($id === (int)$me['id']) {
             flash('error', 'You cannot delete your own account.');
-        } elseif ($n > 0) {
-            flash('error', 'This person has attendance records. Deactivate the account instead, so history is kept.');
+        } elseif ($n > 0 && post('force') !== '1') {
+            flash('error', "This person has $n attendance record(s). Deactivate the account to keep history, or use \"Delete with records\" to remove everything.");
         } elseif ($t['role'] === 'sysadmin' && $t['active'] && active_sysadmins() <= 1) {
             flash('error', 'You cannot delete the last active System Administrator.');
         } else {
             q('DELETE FROM users WHERE id = ?', [$id]);
-            audit('user_delete', $t['email']);
-            flash('ok', 'User deleted.');
+            audit('user_delete', $t['email'] . ($n ? " (with $n attendance records)" : ''));
+            flash('ok', 'User deleted' . ($n ? " together with $n attendance record(s)." : '.'));
         }
         redirect('/admin/users.php');
     }
@@ -118,7 +135,8 @@ if (is_post()) {
                 $byCode[mb_strtolower($d['code'])] = (int)$d['id'];
             }
             $hash = password_hash($tmp, PASSWORD_DEFAULT);
-            $added = $skipped = 0;
+            $added = $skipped = $updated = 0;
+            $update = isset($_POST['update_existing']);
             $problems = [];
             $text = preg_replace('/^\xEF\xBB\xBF/', '', (string)file_get_contents($f['tmp_name']));
             foreach (preg_split('/\r\n|\r|\n/', $text) as $i => $line) {
@@ -134,19 +152,47 @@ if (is_post()) {
                     $problems[] = 'Line ' . ($i + 1);
                     continue;
                 }
-                $dept = $code !== '' ? ($byCode[mb_strtolower($code)] ?? null) : null;
-                try {
-                    q('INSERT INTO users (staff_id, name, email, password_hash, role, staff_type, department_id, must_change_password) VALUES (?,?,?,?,?,?,?,1)',
-                        [mb_substr($sid, 0, 30), mb_substr($name, 0, 120), mb_substr($email, 0, 150), $hash, $role, $type, $dept]);
-                    $added++;
-                } catch (PDOException $ex) {
-                    if ($ex->getCode() !== '23000') { throw $ex; }
-                    $skipped++;
+                $dept = null;
+                if ($code !== '') {
+                    if (!isset($byCode[mb_strtolower($code)])) {
+                        $problems[] = 'Line ' . ($i + 1) . ' (unknown department code "' . $code . '")';
+                        continue;
+                    }
+                    $dept = $byCode[mb_strtolower($code)];
                 }
+                if ($role === 'hod' && !$dept) {
+                    $problems[] = 'Line ' . ($i + 1) . ' (HoD needs a department code)';
+                    continue;
+                }
+                $existing = q('SELECT * FROM users WHERE staff_id = ? OR email = ? LIMIT 1', [$sid, $email])->fetch();
+                if ($existing) {
+                    if (!$update) { $skipped++; continue; }
+                    // Never lock the administrators out of their own system.
+                    if ((int)$existing['id'] === (int)$me['id'] && $role !== $existing['role']) {
+                        $problems[] = 'Line ' . ($i + 1) . ' (you cannot change your own role)';
+                        continue;
+                    }
+                    if ($existing['role'] === 'sysadmin' && $role !== 'sysadmin' && $existing['active'] && active_sysadmins() <= 1) {
+                        $problems[] = 'Line ' . ($i + 1) . ' (last System Administrator)';
+                        continue;
+                    }
+                    try {
+                        q('UPDATE users SET staff_id=?, name=?, email=?, role=?, staff_type=?, department_id=? WHERE id=?',
+                            [mb_substr($sid, 0, 30), mb_substr($name, 0, 120), mb_substr($email, 0, 150), $role, $type, $dept, $existing['id']]);
+                        $updated++;
+                    } catch (PDOException $ex) {
+                        if ($ex->getCode() !== '23000') { throw $ex; }
+                        $problems[] = 'Line ' . ($i + 1) . ' (staff ID or email clashes with another person)';
+                    }
+                    continue;
+                }
+                q('INSERT INTO users (staff_id, name, email, password_hash, role, staff_type, department_id, must_change_password) VALUES (?,?,?,?,?,?,?,1)',
+                    [mb_substr($sid, 0, 30), mb_substr($name, 0, 120), mb_substr($email, 0, 150), $hash, $role, $type, $dept]);
+                $added++;
             }
-            audit('user_import', "$added added, $skipped skipped");
-            $msg = "Imported $added staff. Skipped $skipped already existing.";
-            if ($problems) { $msg .= ' Could not read: ' . implode(', ', array_slice($problems, 0, 10)) . '.'; }
+            audit('user_import', "$added added, $updated updated, $skipped skipped, " . count($problems) . ' problems');
+            $msg = "Added $added new staff" . ($update ? ", updated $updated existing" : ", skipped $skipped already existing") . '.';
+            if ($problems) { $msg .= ' Not imported: ' . implode('; ', array_slice($problems, 0, 10)) . (count($problems) > 10 ? '; …' : '') . '.'; }
             flash($problems ? 'warn' : 'ok', $msg);
         }
         redirect('/admin/users.php');
@@ -154,6 +200,16 @@ if (is_post()) {
 }
 
 /* ---------------- display ---------------- */
+if (isset($_GET['template'])) {
+    csv_download('staff-import-template.csv',
+        ['staff_id', 'name', 'email', 'staff_type', 'department_code', 'role'],
+        [
+            ['CNR001', 'Pema Dorji', 'pdorji.cnr@rub.edu.bt', 'teaching', 'FOR', 'hod'],
+            ['CNR002', 'Sonam Choden', 'schoden.cnr@rub.edu.bt', 'non-teaching', 'ADMIN', 'staff'],
+            ['CNR003', 'Karma Wangchuk', 'kwangchuk.cnr@rub.edu.bt', 'teaching', 'AGR', 'staff'],
+        ]);
+}
+
 $editing = null;
 if (isset($_GET['new'])) {
     $editing = ['id' => 0, 'staff_id' => '', 'name' => '', 'email' => '', 'role' => 'staff', 'staff_type' => 'teaching',
@@ -216,7 +272,14 @@ if ($editing): ?>
     <?php foreach ($users as $x): ?>
       <tr>
         <td><strong><?= e($x['name']) ?></strong><div class="small muted"><?= e($x['staff_id']) ?> · <?= e($x['email']) ?></div></td>
-        <td><?= e(role_label($x['role'])) ?></td>
+        <td>
+          <form method="post" class="inline">
+            <?= csrf_field() ?><input type="hidden" name="action" value="set_role"><input type="hidden" name="id" value="<?= (int)$x['id'] ?>"><input type="hidden" name="q" value="<?= e($search) ?>">
+            <select name="role" data-autosubmit aria-label="Role for <?= e($x['name']) ?>" style="padding:5px 8px;font-size:13px">
+              <?php foreach (ROLE_LABELS as $k => $l): ?><option value="<?= e($k) ?>" <?= $x['role'] === $k ? 'selected' : '' ?>><?= e($l) ?></option><?php endforeach; ?>
+            </select>
+          </form>
+        </td>
         <td><?= e($x['dept'] ?? '—') ?></td>
         <td><?= $x['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching' ?><?= $x['track_attendance'] ? '' : ' <span class="badge badge-muted">not tracked</span>' ?></td>
         <td><?= $x['active'] ? '<span class="badge badge-ok">Active</span>' : '<span class="badge badge-muted">Inactive</span>' ?></td>
@@ -225,6 +288,9 @@ if ($editing): ?>
           <form method="post" class="inline" data-confirm="Delete <?= e($x['name']) ?>? This cannot be undone.">
             <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= (int)$x['id'] ?>">
             <button class="btn btn-danger btn-sm" type="submit">Delete</button></form>
+          <form method="post" class="inline" data-confirm="PERMANENTLY delete <?= e($x['name']) ?> AND all of their attendance records and devices? This cannot be undone.">
+            <?= csrf_field() ?><input type="hidden" name="action" value="delete"><input type="hidden" name="force" value="1"><input type="hidden" name="id" value="<?= (int)$x['id'] ?>">
+            <button class="btn btn-light btn-sm" type="submit" title="Also removes attendance records">Delete with records</button></form>
         </div></td>
       </tr>
     <?php endforeach; ?>
@@ -240,11 +306,12 @@ if ($editing): ?>
       <div class="field"><label for="file">CSV file</label><input type="file" id="file" name="file" accept=".csv,.txt" required></div>
       <div class="field"><label for="temp_password">Temporary password for everyone</label><input type="password" id="temp_password" name="temp_password" minlength="8" required autocomplete="new-password"></div>
     </div>
-    <button class="btn" type="submit">Import</button>
+    <div class="field"><label class="check"><input type="checkbox" name="update_existing"> Also update people who already exist (matched by staff ID or email) — use this to change roles / departments in bulk. Passwords of existing staff are never changed.</label></div>
+    <div class="actions"><button class="btn" type="submit">Import</button><a class="btn btn-light" href="?template=1">Download CSV template</a></div>
   </form>
   <p class="hint" style="margin-top:12px">Columns (no header needed): <code>staff_id, name, email, staff_type, department_code, role</code><br>
     <code>staff_type</code> = <code>teaching</code> or <code>non-teaching</code>. <code>department_code</code> must match a code on the Departments page. <code>role</code> is optional (default <code>staff</code>): <?= e(implode(', ', array_keys(ROLE_LABELS))) ?>.<br>
-    Existing staff IDs / emails are skipped. Everyone must change the temporary password at first sign-in.</p>
+    Existing staff IDs / emails are skipped unless you tick the update box. New staff must change the temporary password at first sign-in. Rows with an unknown department code are reported and not imported.</p>
 </div>
 <?php endif;
 render_footer();
