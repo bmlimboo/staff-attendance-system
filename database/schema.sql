@@ -111,4 +111,22 @@ INSERT IGNORE INTO settings (k, v) VALUES
   ('max_devices',         '2'),
   ('working_days',        '1,2,3,4,5');
 
-INSERT IGNORE INTO departments (name, code) VALUES ('Administration', 'ADMIN');
+-- Code ADMIN is used by bin/create_admin.php, so keep it.
+INSERT IGNORE INTO departments (name, code) VALUES
+  ('Administration / HR',                'ADMIN'),
+  ('Agriculture',                        'AGR'),
+  ('Forestry',                           'FOR'),
+  ('Food Science & Technology',          'FST'),
+  ('Environment and Climate Studies',    'ECS'),
+  ('Animal Science',                     'ANS'),
+  ('Sustainable Development',            'SD'),
+  ('Library',                            'LIB'),
+  ('ICT',                                'ICT'),
+  ('Laboratory',                         'LAB'),
+  ('Exam Cell',                          'EXAM'),
+  ('Student Services',                   'SS'),
+  ('DRIL',                               'DRIL'),
+  ('Farm',                               'FARM'),
+  ('Estate and Maintenance',             'EST');
+-- The Engineering Cell has one person whose attendance HR looks after,
+-- so he is placed in "Administration / HR" (no separate department).
