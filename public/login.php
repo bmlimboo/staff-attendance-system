@@ -47,7 +47,7 @@ render_header('Sign in');
 ?>
 <div class="login-wrap">
   <section class="login-art">
-    <div class="brand-mark">CNR</div>
+    <img class="login-logo" src="/assets/logo.png" alt="College of Natural Resources logo" width="96" height="96">
     <h1>Staff Attendance</h1>
     <p>College of Natural Resources, Royal University of Bhutan. Sign in from the college network and your attendance is recorded automatically.</p>
     <ul>

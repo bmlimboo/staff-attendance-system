@@ -42,6 +42,7 @@ function render_header(string $title, string $active = ''): void
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title><?= e($title) ?> · <?= e($app) ?></title>
+<link rel="icon" type="image/png" href="/assets/favicon.png">
 <link rel="stylesheet" href="/assets/style.css">
 <script src="/assets/app.js" defer></script>
 </head>
@@ -50,7 +51,7 @@ function render_header(string $title, string $active = ''): void
 <div class="shell">
   <aside class="sidebar" id="sidebar">
     <div class="brand">
-      <div class="brand-mark">CNR</div>
+      <img class="brand-logo" src="/assets/logo.png" alt="College of Natural Resources logo" width="46" height="46">
       <div class="brand-text"><strong>Staff Attendance</strong><span>College of Natural Resources</span></div>
     </div>
     <nav>
@@ -65,7 +66,7 @@ function render_header(string $title, string $active = ''): void
         <?php endif; ?>
       <?php endforeach; ?>
     </nav>
-    <div class="sidebar-foot">Royal University of Bhutan</div>
+    <div class="sidebar-foot">&copy; <?= date('Y') ?> College of Natural Resources</div>
   </aside>
   <div class="main">
     <header class="topbar">

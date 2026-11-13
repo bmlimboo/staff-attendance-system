@@ -48,6 +48,7 @@ form.inline { display: inline; margin: 0; }
   width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
   font-weight: 800; letter-spacing: .5px; color: var(--g900); background: linear-gradient(135deg, #f6d36b, var(--gold));
 }
+.brand-logo { width: 46px; height: 46px; flex: none; border-radius: 50%; background: #fff; padding: 1px; box-shadow: 0 2px 8px rgba(0,0,0,.25); }
 .brand-text strong { display: block; color: #fff; font-size: 15px; }
 .brand-text span { font-size: 12px; opacity: .75; }
 .sidebar nav { padding: 12px 10px; overflow-y: auto; flex: 1; }
@@ -180,7 +181,7 @@ textarea { min-height: 100px; resize: vertical; font-family: ui-monospace, Menlo
 .login-art::before, .login-art::after { content: ""; position: absolute; border-radius: 50%; background: rgba(255,255,255,.06); }
 .login-art::before { width: 380px; height: 380px; right: -120px; bottom: -120px; }
 .login-art::after { width: 220px; height: 220px; left: -70px; top: -70px; }
-.login-art .brand-mark { width: 60px; height: 60px; font-size: 20px; margin-bottom: 22px; }
+.login-logo { width: 96px; height: 96px; margin-bottom: 22px; border-radius: 50%; background: #fff; padding: 2px; box-shadow: 0 6px 24px rgba(0,0,0,.3); position: relative; z-index: 1; }
 .login-art h1 { font-size: 34px; margin-bottom: 8px; }
 .login-art p { opacity: .88; max-width: 420px; font-size: 16px; }
 .login-art ul { margin: 26px 0 0; padding: 0; list-style: none; }
