@@ -63,7 +63,8 @@ if (!$seeAll && $visible) {
     $scopeP    = $visible;
 }
 
-$lateToday = $notIn = [];
+$lateToday = $notIn = $awayToday = [];
+$nowMin = tmin(date('H:i'));
 $stat = ['total' => 0, 'in' => 0, 'late' => 0, 'leave' => 0];
 $trend = [];
 if ($showTeam) {
@@ -74,9 +75,17 @@ if ($showTeam) {
                LEFT JOIN departments d ON d.id = u.department_id
                WHERE a.att_date = ? AND $scopeSql ORDER BY a.late_minutes DESC, a.check_in",
         array_merge([$today], $scopeP))->fetchAll();
+    // who is on leave / tour today: leave records plus any day marked "leave" in the attendance list
+    $scopeIds = array_column(q("SELECT u.id FROM users u WHERE $scopeSql", $scopeP)->fetchAll(), 'id');
+    $awayUids = [];   // uid => leave entry (or a plain "on leave")
+    foreach (leaves_map($scopeIds, $today, $today) as $uid => $byDay) {
+        if ($lv = away_for($byDay[$today] ?? null)) {
+            $awayUids[(int)$uid] = $lv;
+        }
+    }
     foreach ($rows as $r) {
         if ($r['status'] === 'leave') {
-            $stat['leave']++;
+            $awayUids[(int)$r['user_id']] ??= ['type' => '', 'part' => 'full', 'kind' => 'leave'];
         } elseif ($r['check_in']) {
             $stat['in']++;
             if ($r['status'] === 'late') {
@@ -85,11 +94,29 @@ if ($showTeam) {
             }
         }
     }
+    $stat['leave'] = count($awayUids);
     if ($isWork) {
-        $notIn = q("SELECT u.name, u.staff_id, u.staff_type, u.designation, d.name AS dept
+        $notIn = q("SELECT u.id, u.name, u.staff_id, u.staff_type, u.designation, d.name AS dept
                     FROM users u LEFT JOIN departments d ON d.id = u.department_id
                     WHERE $scopeSql AND u.id NOT IN (SELECT user_id FROM attendance WHERE att_date = ? AND (check_in IS NOT NULL OR status IN ('leave','present','late')))
                     ORDER BY d.name, u.name", array_merge($scopeP, [$today]))->fetchAll();
+        // people on leave or tour are not "missing"; a morning half-day is expected after lunch
+        $notIn = array_values(array_filter($notIn, function ($r) use ($awayUids, $nowMin) {
+            $lv = $awayUids[(int)$r['id']] ?? null;
+            if (!$lv) { return true; }                                     // not on leave: still missing
+            if ($lv['part'] === 'second_half') { return true; }            // afternoon off, but expected this morning
+            if ($lv['part'] === 'first_half') { return $nowMin > tmin(setting('lunch_end', '13:00')); }
+            return false;                                                  // whole day off
+        }));
+        if ($awayUids) {
+            $ph2 = implode(',', array_fill(0, count($awayUids), '?'));
+            foreach (q("SELECT u.id, u.name, u.designation, d.name AS dept FROM users u LEFT JOIN departments d ON d.id = u.department_id
+                        WHERE u.id IN ($ph2) ORDER BY d.name, u.name", array_keys($awayUids))->fetchAll() as $r) {
+                $lv = $awayUids[(int)$r['id']];
+                $r['label'] = $lv['type'] !== '' ? leave_public_label($lv['type'], $lv['part']) : 'On leave';
+                $awayToday[] = $r;
+            }
+        }
     }
 
     // late count for the last 10 working days
@@ -116,6 +143,11 @@ if ($banner) {
     // Only the static "register this device" message is allowed to contain markup.
     $isHtml = ($result['code'] ?? '') === 'device_none';
     echo '<div class="alert alert-' . e($banner[0]) . '">' . ($isHtml ? $banner[1] : e($banner[1])) . '</div>';
+}
+$myAway = $u['track_attendance'] ? away_for(leave_for((int)$u['id'], $today)) : null;
+if ($myAway && $isWork) {
+    echo '<div class="alert alert-info">You are recorded as <strong>' . e(leave_type_label($myAway['type'])) . '</strong>'
+        . ($myAway['part'] !== 'full' ? ' (' . ($myAway['part'] === 'first_half' ? 'morning' : 'afternoon') . ' off)' : '') . ' today.</div>';
 }
 if ($pendingDevices > 0) {
     echo '<div class="alert alert-info"><strong>' . $pendingDevices . '</strong> device request(s) waiting for approval. <a href="/admin/devices.php">Review now</a></div>';
@@ -188,6 +220,20 @@ if ($pendingDevices > 0) {
     <?php endif; ?>
   </div>
 </div>
+
+<?php if ($isWork && $awayToday): ?>
+<div class="card">
+  <div class="card-head"><h2>On leave or official duty today (<?= count($awayToday) ?>)</h2></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Staff</th><th>Designation</th><th>Department</th><th>Status</th></tr></thead>
+    <tbody>
+    <?php foreach ($awayToday as $r): ?>
+      <tr><td><strong><?= e($r['name']) ?></strong></td><td><?= e($r['designation'] ?: '—') ?></td><td><?= e($r['dept'] ?? '—') ?></td><td><span class="badge badge-info"><?= e($r['label']) ?></span></td></tr>
+    <?php endforeach; ?>
+    </tbody>
+  </table></div>
+</div>
+<?php endif; ?>
 
 <?php if ($isWork): ?>
 <div class="card">

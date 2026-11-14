@@ -52,7 +52,7 @@ if (is_post()) {
 
         $late = 0;
         if ($in) {
-            $late = late_minutes($in, $user['staff_type']);
+            $late = late_minutes($in, $user['staff_type'], $uid, $d);
         }
         if ($st === 'auto') {
             $st = $late > 0 ? 'late' : 'present';

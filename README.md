@@ -40,6 +40,9 @@ Permissions live in one place — the `PERMS` map at the top of `app/helpers.php
 - Every person has a **designation** and a department; the staff list is grouped by department
 - Heads, section heads and deans can be given extra departments to look after ("Also looks after")
 - **Late & Absent** page (grouped by department, with designation, CSV export) limited to the departments a person heads
+- **Leave register** (System Administrator): leave, official tours, training, block days and late-arrival permissions, with half-day (0.5) support. Add or change them **at any time**: lists, reports and the dashboard update at once, including past days
+- Heads and deans see only "On leave" or "On official duty"; the reason stays private
+- **API for the academic system** (substitution form) and CSV import for IMS exports, see [docs/LEAVE_API.md](docs/LEAVE_API.md)
 - Dashboard showing who is late today, not-yet-checked-in list and a late-arrivals trend
 - Reports: per-staff summary and day-by-day detail, filter by date / department / staff type / person, **CSV export**
 - Admin can add, edit and delete any attendance record (with remarks); all changes are audit-logged
@@ -64,7 +67,8 @@ docs/        DEPLOYMENT.md  - VM, local IP, subdomain, HTTPS, backups
 After `git pull`, run the database upgrade once (safe to repeat):
 
 ```bash
-sudo mysql < database/migrations/002_designation_and_dept_heads.sql
+sudo mysql < database/migrations/002_designation_and_dept_heads.sql   # skip if already run
+sudo mysql < database/migrations/003_leaves.sql
 ```
 
 ## Quick start

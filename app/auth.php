@@ -162,7 +162,7 @@ function attempt_checkin(array $user): array
         return ['code' => 'leave'];
     }
 
-    $late   = late_minutes($now, $user['staff_type']);
+    $late   = late_minutes($now, $user['staff_type'], (int)$user['id'], $today);
     $status = $late > 0 ? 'late' : 'present';
 
     if ($row) { // admin pre-created an empty record (e.g. marked absent) - fill it in

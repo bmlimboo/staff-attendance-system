@@ -20,10 +20,12 @@ if (!empty($GLOBALS['config']['debug'])) {
 }
 
 require_once APP_ROOT . '/app/helpers.php';
+require_once APP_ROOT . '/app/leave.php';
 require_once APP_ROOT . '/app/auth.php';
 require_once APP_ROOT . '/app/layout.php';
 
-if (PHP_SAPI !== 'cli') {
+// API endpoints define NO_SESSION so they do not create browser sessions.
+if (PHP_SAPI !== 'cli' && !defined('NO_SESSION')) {
     header('X-Frame-Options: DENY');
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: same-origin');

@@ -25,6 +25,18 @@
   var platField = document.getElementById('dev_platform');
   if (platField) { platField.value = (navigator.platform || '').slice(0, 60); }
 
+  // Leave form: show "allowed arrival time" for late-arrival permission, "day part" for everything else
+  var lt = document.getElementById('leave_type');
+  if (lt) {
+    var syncLeave = function () {
+      var perm = lt.value === 'late_permission';
+      document.querySelectorAll('.only-permission').forEach(function (e) { e.style.display = perm ? '' : 'none'; });
+      document.querySelectorAll('.not-permission').forEach(function (e) { e.style.display = perm ? 'none' : ''; });
+    };
+    lt.addEventListener('change', syncLeave);
+    syncLeave();
+  }
+
   // Auto-submit filter selects: <select data-autosubmit>
   document.querySelectorAll('[data-autosubmit]').forEach(function (el) {
     el.addEventListener('change', function () { el.form.submit(); });

@@ -7,6 +7,8 @@ declare(strict_types=1);
 const PERMS = [
     // add / edit / delete attendance, users, devices, holidays, settings
     'manage'        => ['sysadmin'],
+    // leave register: record leave, tours, training, late-arrival permissions
+    'manage_leave'  => ['sysadmin'],
     // full attendance reports for all staff
     'view_all'      => ['sysadmin', 'admin_officer', 'admin_assistant', 'president'],
     // late-comer list for every department
@@ -341,12 +343,14 @@ function tmin(string $t): int
     return ((int)$p[0]) * 60 + (int)($p[1] ?? 0);
 }
 
-/** Minutes after official start time (0 = on time, respecting grace period). */
-function late_minutes(string $checkIn, string $staffType): int
+/**
+ * Minutes after the official start time (0 = on time, respecting the grace period).
+ * Pass the user and date so half-day leave and late-arrival permission are taken into account.
+ */
+function late_minutes(string $checkIn, string $staffType, ?int $userId = null, ?string $date = null): int
 {
-    [$start] = schedule_for($staffType);
-    $diff = tmin($checkIn) - tmin($start);
-    return $diff > (int)setting('grace_minutes', '0') ? $diff : 0;
+    $leave = ($userId !== null && $date !== null) ? leave_for($userId, $date) : null;
+    return late_minutes_with($checkIn, $staffType, $leave);
 }
 
 /** Worked minutes, excluding the lunch break. */
@@ -440,6 +444,7 @@ function icon(string $name): string
         'edit'     => '<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
         'menu'     => '<line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>',
         'check'    => '<polyline points="20 6 9 17 4 12"/>',
+        'briefcase'=> '<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>',
         'wifi'     => '<path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
     ];
     return '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'

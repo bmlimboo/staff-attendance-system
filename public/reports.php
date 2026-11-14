@@ -35,18 +35,27 @@ $dayCount = count($days);
 
 /* ----- summary ----- */
 $summary = [];
+$leaves = leaves_map(array_column($staff, 'id'), $from, $to);
 foreach ($staff as $s) {
-    $row = ['s' => $s, 'present' => 0, 'late' => 0, 'leave' => 0, 'absent' => 0, 'late_min' => 0, 'worked' => 0];
+    $row = ['s' => $s, 'present' => 0, 'late' => 0, 'leave' => 0.0, 'absent' => 0.0, 'late_min' => 0, 'worked' => 0];
     foreach ($days as $d) {
-        $r = $recs[$s['id']][$d] ?? null;
+        $r    = $recs[$s['id']][$d] ?? null;
+        $lv   = away_for($leaves[$s['id']][$d] ?? null);   // leave / tour recorded in the Leave Register
+        $half = $lv && $lv['part'] !== 'full';
         if ($r && $r['status'] === 'leave') {
-            $row['leave']++;
+            $row['leave'] += 1;
         } elseif ($r && $r['check_in']) {
             $row[$r['status'] === 'late' ? 'late' : 'present']++;
             $row['late_min'] += (int)$r['late_minutes'];
             $row['worked']   += (int)net_minutes($r['check_in'], $r['check_out']);
+            if ($half) { $row['leave'] += 0.5; }
+        } elseif ($lv && !$half) {
+            $row['leave'] += 1;
+        } elseif ($lv) {                       // half-day leave and did not come for the other half
+            $row['leave']  += 0.5;
+            $row['absent'] += 0.5;
         } else {
-            $row['absent']++;
+            $row['absent'] += 1;
         }
     }
     $summary[] = $row;
@@ -71,7 +80,7 @@ if (($_GET['export'] ?? '') === 'csv') {
     audit('export_report', "$view $from to $to");
     if ($view === 'summary') {
         csv_download("attendance-summary_{$from}_to_{$to}.csv",
-            ['Staff ID', 'Name', 'Designation', 'Department', 'Type', 'Working days', 'On time', 'Late', 'Leave', 'No record', 'Total minutes late', 'Hours worked'],
+            ['Staff ID', 'Name', 'Designation', 'Department', 'Type', 'Working days', 'On time', 'Late', 'Leave / tour (days)', 'No record (days)', 'Total minutes late', 'Hours worked'],
             array_map(fn($x) => [$x['s']['staff_id'], $x['s']['name'], $x['s']['designation'], $x['s']['dept'] ?? '',
                 $x['s']['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching', $dayCount,
                 $x['present'], $x['late'], $x['leave'], $x['absent'], $x['late_min'], round($x['worked'] / 60, 1)], $summary));
@@ -117,7 +126,7 @@ render_header('Attendance Reports', 'reports');
 
   <?php if ($view === 'summary'): ?>
   <div class="table-wrap"><table>
-    <thead><tr><th>Staff</th><th>Department</th><th>Type</th><th>On time</th><th>Late</th><th>Leave</th><th>No record</th><th>Min. late</th><th>Hours worked</th></tr></thead>
+    <thead><tr><th>Staff</th><th>Department</th><th>Type</th><th>On time</th><th>Late</th><th>Leave / tour</th><th>No record</th><th>Min. late</th><th>Hours worked</th></tr></thead>
     <tbody>
     <?php if (!$summary): ?><tr><td colspan="9" class="empty">No staff match these filters.</td></tr><?php endif; ?>
     <?php foreach ($summary as $x): ?>
@@ -127,8 +136,8 @@ render_header('Attendance Reports', 'reports');
         <td><?= $x['s']['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching' ?></td>
         <td><?= $x['present'] ?></td>
         <td><?= $x['late'] ? '<span class="badge badge-warn">' . $x['late'] . '</span>' : 0 ?></td>
-        <td><?= $x['leave'] ?></td>
-        <td><?= $x['absent'] ? '<span class="badge badge-bad">' . $x['absent'] . '</span>' : 0 ?></td>
+        <td><?= e(fmt_days($x['leave'])) ?></td>
+        <td><?= $x['absent'] ? '<span class="badge badge-bad">' . e(fmt_days($x['absent'])) . '</span>' : 0 ?></td>
         <td><?= $x['late_min'] ?></td>
         <td><?= e(fmt_hm($x['worked'])) ?></td>
       </tr>

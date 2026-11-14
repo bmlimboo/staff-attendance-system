@@ -22,6 +22,7 @@ function nav_items(): array
         $pending = (int)q("SELECT COUNT(*) c FROM devices WHERE status = 'pending'")->fetch()['c'];
         $items[] = ['section', 'Administration'];
         $items[] = ['/admin/attendance.php', 'Edit Attendance', 'edit', 'a_att'];
+        $items[] = ['/admin/leaves.php', 'Leave Register', 'briefcase', 'a_leave'];
         $items[] = ['/admin/devices.php', 'Device Approvals', 'device', 'a_dev', $pending];
         $items[] = ['/admin/users.php', 'Staff & Users', 'users', 'a_users'];
         $items[] = ['/admin/departments.php', 'Departments', 'building', 'a_dept'];
