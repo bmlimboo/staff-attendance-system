@@ -36,7 +36,7 @@ if ($result) {
             $banner = ['error', 'This device is not allowed to record attendance. Please contact the system administrator.'];
             break;
         case 'non_working':
-            $banner = ['info', $result['holiday'] ? 'Today is a holiday: ' . $result['holiday'] . '. No attendance needed.' : 'Today is not a working day.'];
+            $banner = ['info', $result['holiday'] ? 'Today is a holiday: ' . $result['holiday'] . '. No attendance needed.' : (date('N') >= 6 ? 'Today is the weekend. No attendance is needed.' : 'Today is not a working day.')];
             break;
         case 'leave':
             $banner = ['info', 'You are marked on leave today.'];
@@ -126,7 +126,7 @@ if ($pendingDevices > 0) {
     <h2>Good <?= date('H') < 12 ? 'morning' : (date('H') < 17 ? 'afternoon' : 'evening') ?>, <?= e(explode(' ', $u['name'])[0]) ?></h2>
     <p><?= e(date('l, d F Y')) ?> ·
       <?php if ($holiday): ?>Holiday: <?= e($holiday) ?>
-      <?php elseif (!$isWork): ?>Not a working day
+      <?php elseif (!$isWork): ?><?= date('N') >= 6 ? 'Weekend' : 'Not a working day' ?>
       <?php else: ?>Office hours <?= e(fmt_time($sStart)) ?> – <?= e(fmt_time($sEnd)) ?> · Lunch <?= e(fmt_time(setting('lunch_start', '12:00'))) ?> – <?= e(fmt_time(setting('lunch_end', '13:00'))) ?><?php endif; ?>
     </p>
   </div>
