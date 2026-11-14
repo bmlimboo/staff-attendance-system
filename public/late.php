@@ -2,100 +2,170 @@
 require __DIR__ . '/../app/bootstrap.php';
 $u = require_any_perm(['view_late_all', 'view_late_dept']);
 
-$seeAll = can('view_late_all');
-$today  = date('Y-m-d');
+$today   = date('Y-m-d');
+$visible = visible_department_ids($u);   // null = every department
+
+if ($visible !== null && !$visible) {
+    render_header('Late & Absent', 'late');
+    echo '<div class="alert alert-warn">Your account is not linked to a department yet. Ask the system administrator to set your department.</div>';
+    render_footer();
+    exit;
+}
 
 $from = $_GET['from'] ?? $today;
 $to   = $_GET['to'] ?? $today;
 if (!valid_date($from)) { $from = $today; }
 if (!valid_date($to))   { $to = $today; }
 if ($to < $from)        { [$from, $to] = [$to, $from]; }
+if (strtotime($to) - strtotime($from) > 366 * 86400) { $from = date('Y-m-d', strtotime('-366 days', strtotime($to))); }
 
-$deptId = $seeAll ? (int)($_GET['dept'] ?? 0) : (int)$u['department_id'];
-if (!$seeAll && !$deptId) {
-    render_header('Late Comers', 'late');
-    echo '<div class="alert alert-warn">Your account is not linked to a department yet. Ask the system administrator to set your department.</div>';
-    render_footer();
-    exit;
-}
+$show = in_array($_GET['show'] ?? '', ['late', 'absent'], true) ? $_GET['show'] : 'both';
 
-$sql = "SELECT a.att_date, a.check_in, a.late_minutes, u.id AS uid, u.name, u.staff_id, u.staff_type, d.name AS dept
-        FROM attendance a JOIN users u ON u.id = a.user_id LEFT JOIN departments d ON d.id = u.department_id
-        WHERE a.status = 'late' AND a.att_date BETWEEN ? AND ?";
-$p = [$from, $to];
+/* departments this person may look at */
+$allDepts = q('SELECT id, name FROM departments ORDER BY name')->fetchAll();
+$depts = $visible === null ? $allDepts
+    : array_values(array_filter($allDepts, fn($d) => in_array((int)$d['id'], $visible, true)));
+$allowedIds = array_map(fn($d) => (int)$d['id'], $depts);
+
+$deptId = (int)($_GET['dept'] ?? 0);
+if ($deptId && !in_array($deptId, $allowedIds, true)) { $deptId = 0; }
+
+/* staff in scope */
+$sql = 'SELECT u.id, u.name, u.staff_id, u.staff_type, u.designation, u.department_id, d.name AS dept
+        FROM users u LEFT JOIN departments d ON d.id = u.department_id
+        WHERE u.active = 1 AND u.track_attendance = 1';
+$p = [];
 if ($deptId) {
     $sql .= ' AND u.department_id = ?';
     $p[] = $deptId;
+} elseif ($visible !== null) {
+    $sql .= ' AND u.department_id IN (' . implode(',', array_fill(0, count($allowedIds), '?')) . ')';
+    $p = array_merge($p, $allowedIds);
 }
-$sql .= ' ORDER BY a.att_date DESC, a.late_minutes DESC, u.name';
-$rows = q($sql, $p)->fetchAll();
+$sql .= ' ORDER BY d.name, u.name';
+$staff = q($sql, $p)->fetchAll();
+
+/* attendance in the period */
+$recs = [];
+foreach (q('SELECT user_id, att_date, status, check_in, late_minutes FROM attendance WHERE att_date BETWEEN ? AND ?', [$from, $to]) as $r) {
+    $recs[$r['user_id']][$r['att_date']] = $r;
+}
+$days   = working_days($from, $to);
+$nowMin = tmin(date('H:i'));
+
+$rows = [];
+$perStaff = [];
+foreach ($staff as $s) {
+    [$start] = schedule_for($s['staff_type']);
+    foreach ($days as $d) {
+        $r = $recs[$s['id']][$d] ?? null;
+        $status = $r['status'] ?? null;
+        if ($status === 'leave' || $status === 'present') { continue; }
+        if ($status === 'late') {
+            if ($show === 'absent') { continue; }
+            $kind = 'late';
+        } else { // no record, or explicitly marked absent
+            if ($show === 'late') { continue; }
+            if (!$r && $d === $today && $nowMin <= tmin($start)) { continue; } // day has not started yet
+            $kind = (!$r && $d === $today) ? 'pending' : 'absent';
+        }
+        $rows[] = ['s' => $s, 'date' => $d, 'kind' => $kind, 'in' => $r['check_in'] ?? null, 'min' => (int)($r['late_minutes'] ?? 0)];
+
+        $k = $s['id'];
+        $perStaff[$k] ??= ['s' => $s, 'late' => 0, 'late_min' => 0, 'absent' => 0];
+        if ($kind === 'late')   { $perStaff[$k]['late']++; $perStaff[$k]['late_min'] += (int)$r['late_minutes']; }
+        if ($kind === 'absent') { $perStaff[$k]['absent']++; }
+    }
+}
+usort($rows, fn($a, $b) => [(string)$a['s']['dept'], $b['date'], $a['s']['name']] <=> [(string)$b['s']['dept'], $a['date'], $b['s']['name']]);
+uasort($perStaff, fn($a, $b) => [$b['late'] + $b['absent'], $b['late_min']] <=> [$a['late'] + $a['absent'], $a['late_min']]);
+
+$totLate = count(array_filter($rows, fn($r) => $r['kind'] === 'late'));
+$totAbs  = count(array_filter($rows, fn($r) => $r['kind'] === 'absent'));
+$totPend = count(array_filter($rows, fn($r) => $r['kind'] === 'pending'));
+
+$kindLabel = ['late' => 'Late', 'absent' => 'Absent', 'pending' => 'Not in yet'];
 
 if (($_GET['export'] ?? '') === 'csv') {
-    audit('export_late', "$from to $to");
-    csv_download("late-comers_{$from}_to_{$to}.csv",
-        ['Date', 'Staff ID', 'Name', 'Department', 'Type', 'Check-in', 'Minutes late'],
-        array_map(fn($r) => [$r['att_date'], $r['staff_id'], $r['name'], $r['dept'] ?? '',
-            $r['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching', substr($r['check_in'], 0, 5), $r['late_minutes']], $rows));
+    audit('export_late_absent', "$from to $to");
+    csv_download("late-and-absent_{$from}_to_{$to}.csv",
+        ['Date', 'Department', 'Staff ID', 'Name', 'Designation', 'Type', 'Status', 'Check-in', 'Minutes late'],
+        array_map(fn($r) => [$r['date'], $r['s']['dept'] ?? '', $r['s']['staff_id'], $r['s']['name'], $r['s']['designation'],
+            $r['s']['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching', $kindLabel[$r['kind']],
+            $r['in'] ? substr($r['in'], 0, 5) : '', $r['kind'] === 'late' ? $r['min'] : ''], $rows));
 }
 
-$byStaff = [];
-foreach ($rows as $r) {
-    $k = $r['uid'];
-    $byStaff[$k] ??= ['name' => $r['name'], 'dept' => $r['dept'], 'days' => 0, 'mins' => 0];
-    $byStaff[$k]['days']++;
-    $byStaff[$k]['mins'] += (int)$r['late_minutes'];
-}
-uasort($byStaff, fn($a, $b) => [$b['days'], $b['mins']] <=> [$a['days'], $a['mins']]);
+$qs = http_build_query(['from' => $from, 'to' => $to, 'dept' => $deptId, 'show' => $show, 'export' => 'csv']);
+$title = $visible === null ? 'all departments' : (count($allowedIds) === 1 ? $depts[0]['name'] : 'my departments');
 
-$depts = $seeAll ? q('SELECT id, name FROM departments ORDER BY name')->fetchAll() : [];
-$qs = http_build_query(['from' => $from, 'to' => $to, 'dept' => $deptId, 'export' => 'csv']);
-
-render_header('Late Comers', 'late');
+render_header('Late & Absent', 'late');
 ?>
+<div class="grid grid-3">
+  <div class="stat late"><div class="num"><?= $totLate ?></div><div class="lbl">Late arrivals</div></div>
+  <div class="stat bad"><div class="num"><?= $totAbs ?></div><div class="lbl">Absent (no record, no leave)</div></div>
+  <div class="stat info"><div class="num"><?= count($staff) ?></div><div class="lbl">Staff in view</div></div>
+</div>
+
 <div class="card">
   <div class="card-head">
-    <h2><?= $seeAll ? 'Late comers — all departments' : 'Late comers — ' . e($u['dept_name'] ?? 'my department') ?></h2>
+    <h2>Late &amp; absent — <?= e($title) ?></h2>
     <a class="btn btn-light btn-sm" href="?<?= e($qs) ?>">Export CSV</a>
   </div>
   <form method="get" class="filters">
     <div class="field"><label for="from">From</label><input type="date" id="from" name="from" value="<?= e($from) ?>"></div>
     <div class="field"><label for="to">To</label><input type="date" id="to" name="to" value="<?= e($to) ?>"></div>
-    <?php if ($seeAll): ?>
     <div class="field"><label for="dept">Department</label>
-      <select id="dept" name="dept"><option value="0">All departments</option>
+      <select id="dept" name="dept"><option value="0"><?= $visible === null ? 'All departments' : 'All of mine' ?></option>
         <?php foreach ($depts as $d): ?><option value="<?= (int)$d['id'] ?>" <?= $deptId === (int)$d['id'] ? 'selected' : '' ?>><?= e($d['name']) ?></option><?php endforeach; ?>
       </select></div>
-    <?php endif; ?>
+    <div class="field"><label for="show">Show</label>
+      <select id="show" name="show">
+        <option value="both" <?= $show === 'both' ? 'selected' : '' ?>>Late and absent</option>
+        <option value="late" <?= $show === 'late' ? 'selected' : '' ?>>Late only</option>
+        <option value="absent" <?= $show === 'absent' ? 'selected' : '' ?>>Absent only</option></select></div>
     <button class="btn" type="submit">Show</button>
   </form>
+  <p class="small muted">"Absent" means a working day with no check-in and no leave recorded. Approved leave, holidays and weekends are not counted. <?= $totPend ? "$totPend person(s) have not checked in yet today." : '' ?></p>
 
   <div class="table-wrap"><table>
-    <thead><tr><th>Date</th><th>Staff</th><?php if ($seeAll): ?><th>Department</th><?php endif; ?><th>Type</th><th>Check-in</th><th>Late by</th></tr></thead>
+    <thead><tr><th>Date</th><th>Staff</th><th>Designation</th><th>Type</th><th>Status</th><th>Check-in</th></tr></thead>
     <tbody>
-    <?php if (!$rows): ?><tr><td colspan="6" class="empty">No late arrivals in this period.</td></tr><?php endif; ?>
-    <?php foreach ($rows as $r): ?>
+    <?php if (!$rows): ?><tr><td colspan="6" class="empty">Nobody was late or absent in this period.</td></tr><?php endif; ?>
+    <?php $lastDept = false; foreach ($rows as $r): $dn = $r['s']['dept'] ?? 'No department'; ?>
+      <?php if ($dn !== $lastDept): $lastDept = $dn; ?>
+        <tr class="row-group"><td colspan="6"><?= e($dn) ?></td></tr>
+      <?php endif; ?>
       <tr>
-        <td class="nowrap"><?= e(fmt_date($r['att_date'])) ?></td>
-        <td><strong><?= e($r['name']) ?></strong> <span class="small muted"><?= e($r['staff_id']) ?></span></td>
-        <?php if ($seeAll): ?><td><?= e($r['dept'] ?? '—') ?></td><?php endif; ?>
-        <td><?= $r['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching' ?></td>
-        <td class="nowrap"><?= e(fmt_time($r['check_in'])) ?></td>
-        <td><span class="badge badge-warn"><?= (int)$r['late_minutes'] ?> min</span></td>
+        <td class="nowrap"><?= e(fmt_date($r['date'])) ?></td>
+        <td><strong><?= e($r['s']['name']) ?></strong> <span class="small muted"><?= e($r['s']['staff_id']) ?></span></td>
+        <td><?= e($r['s']['designation'] ?: '—') ?></td>
+        <td><?= $r['s']['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching' ?></td>
+        <td>
+          <?php if ($r['kind'] === 'late'): ?><span class="badge badge-warn">Late <?= (int)$r['min'] ?> min</span>
+          <?php elseif ($r['kind'] === 'absent'): ?><span class="badge badge-bad">Absent</span>
+          <?php else: ?><span class="badge badge-info">Not in yet</span><?php endif; ?>
+        </td>
+        <td class="nowrap"><?= e(fmt_time($r['in'])) ?></td>
       </tr>
     <?php endforeach; ?>
     </tbody>
   </table></div>
 </div>
 
-<?php if (count($byStaff) > 0 && $from !== $to): ?>
+<?php if ($perStaff && $from !== $to): ?>
 <div class="card">
-  <h2>Who is late most often</h2>
+  <h2>Who is late or absent most often</h2>
   <div class="table-wrap"><table>
-    <thead><tr><th>Staff</th><?php if ($seeAll): ?><th>Department</th><?php endif; ?><th>Days late</th><th>Total minutes late</th></tr></thead>
+    <thead><tr><th>Staff</th><th>Designation</th><th>Department</th><th>Days late</th><th>Minutes late</th><th>Days absent</th></tr></thead>
     <tbody>
-    <?php foreach (array_slice($byStaff, 0, 15) as $s): ?>
-      <tr><td><strong><?= e($s['name']) ?></strong></td><?php if ($seeAll): ?><td><?= e($s['dept'] ?? '—') ?></td><?php endif; ?>
-        <td><?= (int)$s['days'] ?></td><td><?= (int)$s['mins'] ?></td></tr>
+    <?php foreach (array_slice($perStaff, 0, 20) as $x): ?>
+      <tr>
+        <td><strong><?= e($x['s']['name']) ?></strong></td>
+        <td><?= e($x['s']['designation'] ?: '—') ?></td>
+        <td><?= e($x['s']['dept'] ?? '—') ?></td>
+        <td><?= (int)$x['late'] ?></td><td><?= (int)$x['late_min'] ?></td>
+        <td><?= $x['absent'] ? '<span class="badge badge-bad">' . (int)$x['absent'] . '</span>' : 0 ?></td>
+      </tr>
     <?php endforeach; ?>
     </tbody>
   </table></div>

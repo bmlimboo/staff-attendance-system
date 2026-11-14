@@ -25,8 +25,10 @@ All times, the grace period, working days and office networks are editable in **
 | Administrative Officer | View all attendance details and reports |
 | Administrative Assistant | View all attendance details and reports |
 | President | View all attendance details and reports |
-| DAA | See late-comers of **all departments** |
-| HoD | See late-comers of **their own department only** |
+| DAA | See who is late or absent in **all departments** |
+| Head of Department | See who is late or absent in **their own department** (plus any extra departments assigned) |
+| Section Head | Same as Head of Department, for their section / department |
+| Dean | Same, for their own department plus any extra departments assigned (e.g. a Dean over DRIL, Farm and Laboratory) |
 | Staff | See own attendance, register own devices |
 
 Permissions live in one place — the `PERMS` map at the top of `app/helpers.php` — so changing who can see what is a one-line edit.
@@ -35,6 +37,9 @@ Permissions live in one place — the `PERMS` map at the top of `app/helpers.php
 
 - Automatic check-in on sign-in (office network + approved device required)
 - Device registration with administrator approval, limit of devices per staff, revoke / re-approve / remove
+- Every person has a **designation** and a department; the staff list is grouped by department
+- Heads, section heads and deans can be given extra departments to look after ("Also looks after")
+- **Late & Absent** page (grouped by department, with designation, CSV export) limited to the departments a person heads
 - Dashboard showing who is late today, not-yet-checked-in list and a late-arrivals trend
 - Reports: per-staff summary and day-by-day detail, filter by date / department / staff type / person, **CSV export**
 - Admin can add, edit and delete any attendance record (with remarks); all changes are audit-logged
@@ -52,6 +57,14 @@ app/         configuration, helpers, authentication (not web-accessible)
 database/    schema.sql
 bin/         create_admin.php (first administrator)
 docs/        DEPLOYMENT.md  - VM, local IP, subdomain, HTTPS, backups
+```
+
+## Upgrading an existing installation
+
+After `git pull`, run the database upgrade once (safe to repeat):
+
+```bash
+sudo mysql < database/migrations/002_designation_and_dept_heads.sql
 ```
 
 ## Quick start

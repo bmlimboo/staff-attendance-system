@@ -39,7 +39,10 @@ if (is_post()) {
     redirect('/admin/departments.php');
 }
 
-$rows = q('SELECT d.*, (SELECT COUNT(*) FROM users u WHERE u.department_id = d.id) AS n FROM departments d ORDER BY d.name')->fetchAll();
+$rows = q("SELECT d.*, (SELECT COUNT(*) FROM users u WHERE u.department_id = d.id) AS n,
+    (SELECT GROUP_CONCAT(h.name ORDER BY h.name SEPARATOR ', ') FROM users h WHERE h.active = 1 AND h.role IN ('hod','section_head','dean')
+       AND (h.department_id = d.id OR h.id IN (SELECT da.user_id FROM department_access da WHERE da.department_id = d.id))) AS heads
+   FROM departments d ORDER BY d.name")->fetchAll();
 $edit = null;
 if (isset($_GET['edit'])) {
     foreach ($rows as $r) { if ((int)$r['id'] === (int)$_GET['edit']) { $edit = $r; } }
@@ -51,12 +54,12 @@ render_header('Departments', 'a_dept');
   <div class="card">
     <h2>Departments</h2>
     <div class="table-wrap"><table>
-      <thead><tr><th>Name</th><th>Code</th><th>Staff</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Code</th><th>Staff</th><th>Heads</th><th></th></tr></thead>
       <tbody>
-      <?php if (!$rows): ?><tr><td colspan="4" class="empty">No departments yet.</td></tr><?php endif; ?>
+      <?php if (!$rows): ?><tr><td colspan="5" class="empty">No departments yet.</td></tr><?php endif; ?>
       <?php foreach ($rows as $r): ?>
         <tr>
-          <td><strong><?= e($r['name']) ?></strong></td><td><code><?= e($r['code']) ?></code></td><td><?= (int)$r['n'] ?></td>
+          <td><strong><?= e($r['name']) ?></strong></td><td><code><?= e($r['code']) ?></code></td><td><?= (int)$r['n'] ?></td><td class="small"><?= $r['heads'] ? e($r['heads']) : '<span class="muted">none assigned</span>' ?></td>
           <td class="right"><div class="actions" style="justify-content:flex-end">
             <a class="btn btn-light btn-sm" href="?edit=<?= (int)$r['id'] ?>">Edit</a>
             <form method="post" class="inline" data-confirm="Delete this department?">

@@ -11,7 +11,7 @@ function nav_items(): array
         $items[] = ['/register_device.php', 'My Devices', 'device', 'devices'];
     }
     if (can('view_late_all') || can('view_late_dept')) {
-        $items[] = ['/late.php', 'Late Comers', 'alert', 'late'];
+        $items[] = ['/late.php', 'Late & Absent', 'alert', 'late'];
     }
     if (can('view_all')) {
         $items[] = ['/reports.php', 'Attendance Reports', 'chart', 'reports'];

@@ -52,15 +52,15 @@ if ($u['track_attendance']) {
 [$sStart, $sEnd] = schedule_for($u['staff_type']);
 
 /* ---- scope for leadership views ---- */
-$seeAll  = can('view_all') || can('view_late_all');
-$seeDept = can('view_late_dept') && $u['department_id'];
-$showTeam = $seeAll || $seeDept;
+$seeAll   = can('view_all') || can('view_late_all');
+$visible  = visible_department_ids($u);            // null = all departments
+$showTeam = $seeAll || !empty($visible);
 
 $scopeSql = ' u.active = 1 AND u.track_attendance = 1 ';
 $scopeP   = [];
-if (!$seeAll && $seeDept) {
-    $scopeSql .= ' AND u.department_id = ? ';
-    $scopeP[]  = $u['department_id'];
+if (!$seeAll && $visible) {
+    $scopeSql .= ' AND u.department_id IN (' . implode(',', array_fill(0, count($visible), '?')) . ') ';
+    $scopeP    = $visible;
 }
 
 $lateToday = $notIn = [];
@@ -69,7 +69,7 @@ $trend = [];
 if ($showTeam) {
     $stat['total'] = (int)q("SELECT COUNT(*) c FROM users u WHERE $scopeSql", $scopeP)->fetch()['c'];
 
-    $rows = q("SELECT a.*, u.name, u.staff_id, u.staff_type, d.name AS dept
+    $rows = q("SELECT a.*, u.name, u.staff_id, u.staff_type, u.designation, d.name AS dept
                FROM attendance a JOIN users u ON u.id = a.user_id
                LEFT JOIN departments d ON d.id = u.department_id
                WHERE a.att_date = ? AND $scopeSql ORDER BY a.late_minutes DESC, a.check_in",
@@ -85,11 +85,11 @@ if ($showTeam) {
             }
         }
     }
-    if ($isWork && $seeAll) {
-        $notIn = q("SELECT u.name, u.staff_id, u.staff_type, d.name AS dept
+    if ($isWork) {
+        $notIn = q("SELECT u.name, u.staff_id, u.staff_type, u.designation, d.name AS dept
                     FROM users u LEFT JOIN departments d ON d.id = u.department_id
-                    WHERE $scopeSql AND u.id NOT IN (SELECT user_id FROM attendance WHERE att_date = ? AND (check_in IS NOT NULL OR status = 'leave'))
-                    ORDER BY u.name", array_merge($scopeP, [$today]))->fetchAll();
+                    WHERE $scopeSql AND u.id NOT IN (SELECT user_id FROM attendance WHERE att_date = ? AND (check_in IS NOT NULL OR status IN ('leave','present','late')))
+                    ORDER BY d.name, u.name", array_merge($scopeP, [$today]))->fetchAll();
     }
 
     // late count for the last 10 working days
@@ -147,7 +147,7 @@ if ($pendingDevices > 0) {
 
 <?php if ($showTeam): ?>
 <div class="grid grid-4">
-  <div class="stat"><div class="num"><?= $stat['total'] ?></div><div class="lbl"><?= $seeAll ? 'Staff tracked' : 'Staff in ' . e($u['dept_name'] ?? 'department') ?></div></div>
+  <div class="stat"><div class="num"><?= $stat['total'] ?></div><div class="lbl"><?= $seeAll ? 'Staff tracked' : (count($visible) === 1 ? 'Staff in ' . e($u['dept_name'] ?? 'your department') : 'Staff in your departments') ?></div></div>
   <div class="stat"><div class="num"><?= $stat['in'] ?></div><div class="lbl">Checked in today</div></div>
   <div class="stat late"><div class="num"><?= $stat['late'] ?></div><div class="lbl">Late today</div></div>
   <div class="stat info"><div class="num"><?= $stat['leave'] ?></div><div class="lbl">On leave</div></div>
@@ -162,12 +162,12 @@ if ($pendingDevices > 0) {
       <p class="empty">Nobody has been late so far today. 🎉</p>
     <?php else: ?>
     <div class="table-wrap"><table>
-      <thead><tr><th>Staff</th><?php if ($seeAll): ?><th>Department</th><?php endif; ?><th>Arrived</th><th>Late by</th></tr></thead>
+      <thead><tr><th>Staff</th><th>Department</th><th>Arrived</th><th>Late by</th></tr></thead>
       <tbody>
       <?php foreach ($lateToday as $r): ?>
         <tr>
-          <td><strong><?= e($r['name']) ?></strong><div class="small muted"><?= e($r['staff_id']) ?> · <?= $r['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching' ?></div></td>
-          <?php if ($seeAll): ?><td><?= e($r['dept'] ?? '—') ?></td><?php endif; ?>
+          <td><strong><?= e($r['name']) ?></strong><div class="small muted"><?= e($r['designation'] ?: ($r['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching')) ?> · <?= e($r['staff_id']) ?></div></td>
+          <td><?= e($r['dept'] ?? '—') ?></td>
           <td class="nowrap"><?= e(fmt_time($r['check_in'])) ?></td>
           <td><span class="badge badge-warn"><?= (int)$r['late_minutes'] ?> min</span></td>
         </tr>
@@ -189,15 +189,15 @@ if ($pendingDevices > 0) {
   </div>
 </div>
 
-<?php if ($seeAll && $isWork): ?>
+<?php if ($isWork): ?>
 <div class="card">
-  <div class="card-head"><h2>Not yet checked in (<?= count($notIn) ?>)</h2></div>
+  <div class="card-head"><h2>Not checked in yet / absent (<?= count($notIn) ?>)</h2><a class="btn btn-light btn-sm" href="/late.php?show=absent">Absent history</a></div>
   <?php if (!$notIn): ?><p class="empty">Everyone has checked in or is on leave.</p><?php else: ?>
   <div class="table-wrap"><table>
-    <thead><tr><th>Staff</th><th>Department</th><th>Type</th></tr></thead>
+    <thead><tr><th>Staff</th><th>Designation</th><th>Department</th><th>Type</th></tr></thead>
     <tbody>
     <?php foreach ($notIn as $r): ?>
-      <tr><td><strong><?= e($r['name']) ?></strong> <span class="small muted"><?= e($r['staff_id']) ?></span></td><td><?= e($r['dept'] ?? '—') ?></td><td><?= $r['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching' ?></td></tr>
+      <tr><td><strong><?= e($r['name']) ?></strong> <span class="small muted"><?= e($r['staff_id']) ?></span></td><td><?= e($r['designation'] ?: '—') ?></td><td><?= e($r['dept'] ?? '—') ?></td><td><?= $r['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching' ?></td></tr>
     <?php endforeach; ?>
     </tbody>
   </table></div>

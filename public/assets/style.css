@@ -120,6 +120,8 @@ td { padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: m
 tbody tr:hover { background: #f8fbf9; }
 tr.row-holiday td { background: var(--gold-soft); }
 tr.row-off td { color: var(--muted); background: #fafbfa; }
+tr.row-group td { background: var(--g100); color: var(--g800); font-weight: 700; font-size: 13px; letter-spacing: .3px; padding: 8px 12px; }
+tbody tr.row-group:hover td { background: var(--g100); }
 .empty { text-align: center; color: var(--muted); padding: 28px 12px; }
 
 /* ---------- badges, alerts ---------- */

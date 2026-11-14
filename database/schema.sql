@@ -17,9 +17,10 @@ CREATE TABLE IF NOT EXISTS users (
   name                 VARCHAR(120) NOT NULL,
   email                VARCHAR(150) NOT NULL UNIQUE,
   password_hash        VARCHAR(255) NOT NULL,
-  role ENUM('sysadmin','admin_officer','admin_assistant','president','hod','daa','staff')
+  role ENUM('sysadmin','admin_officer','admin_assistant','president','hod','section_head','dean','daa','staff')
                        NOT NULL DEFAULT 'staff',
   staff_type           ENUM('teaching','non_teaching') NOT NULL DEFAULT 'teaching',
+  designation          VARCHAR(100) NOT NULL DEFAULT '',
   department_id        INT UNSIGNED NULL,
   track_attendance     TINYINT(1) NOT NULL DEFAULT 1,
   active               TINYINT(1) NOT NULL DEFAULT 1,
@@ -27,6 +28,16 @@ CREATE TABLE IF NOT EXISTS users (
   created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_users_dept FOREIGN KEY (department_id)
     REFERENCES departments(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- Extra departments a Head of Department / Section Head / Dean looks after,
+-- in addition to the department on their own staff record.
+CREATE TABLE IF NOT EXISTS department_access (
+  user_id       INT UNSIGNED NOT NULL,
+  department_id INT UNSIGNED NOT NULL,
+  PRIMARY KEY (user_id, department_id),
+  CONSTRAINT fk_da_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_da_dept FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS devices (

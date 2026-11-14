@@ -11,8 +11,8 @@ const PERMS = [
     'view_all'      => ['sysadmin', 'admin_officer', 'admin_assistant', 'president'],
     // late-comer list for every department
     'view_late_all' => ['sysadmin', 'admin_officer', 'admin_assistant', 'president', 'daa'],
-    // late-comer list for the user's own department only
-    'view_late_dept'=> ['hod'],
+    // late / absent list for the department(s) the user heads
+    'view_late_dept'=> ['hod', 'section_head', 'dean'],
 ];
 
 const ROLE_LABELS = [
@@ -21,6 +21,8 @@ const ROLE_LABELS = [
     'admin_assistant' => 'Administrative Assistant',
     'president'       => 'President',
     'hod'             => 'Head of Department',
+    'section_head'    => 'Section Head',
+    'dean'            => 'Dean',
     'daa'             => 'Dean of Academic Affairs',
     'staff'           => 'Staff',
 ];
@@ -239,6 +241,38 @@ function can(string $perm): bool
 {
     $u = current_user();
     return $u !== null && in_array($u['role'], PERMS[$perm] ?? [], true);
+}
+
+/**
+ * Department ids a head looks after: their own department plus any extra ones
+ * assigned to them on the Staff & Users page.
+ * @return int[]
+ */
+function managed_department_ids(array $user): array
+{
+    $ids = [];
+    if (!empty($user['department_id'])) {
+        $ids[] = (int)$user['department_id'];
+    }
+    foreach (q('SELECT department_id FROM department_access WHERE user_id = ?', [$user['id']]) as $r) {
+        $ids[] = (int)$r['department_id'];
+    }
+    return array_values(array_unique($ids));
+}
+
+/**
+ * Departments the signed-in user may see attendance problems for.
+ * null  = every department;  []  = none;  [ids] = only those.
+ */
+function visible_department_ids(array $user): ?array
+{
+    if (can('view_all') || can('view_late_all')) {
+        return null;
+    }
+    if (can('view_late_dept')) {
+        return managed_department_ids($user);
+    }
+    return [];
 }
 
 function role_label(string $role): string

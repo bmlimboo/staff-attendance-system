@@ -15,7 +15,7 @@ $type   = in_array($_GET['type'] ?? '', ['teaching', 'non_teaching'], true) ? $_
 $userId = (int)($_GET['user'] ?? 0);
 
 /* ----- staff in scope ----- */
-$sql = 'SELECT u.id, u.name, u.staff_id, u.staff_type, d.name AS dept
+$sql = 'SELECT u.id, u.name, u.staff_id, u.staff_type, u.designation, d.name AS dept
         FROM users u LEFT JOIN departments d ON d.id = u.department_id
         WHERE u.active = 1 AND u.track_attendance = 1';
 $p = [];
@@ -71,14 +71,14 @@ if (($_GET['export'] ?? '') === 'csv') {
     audit('export_report', "$view $from to $to");
     if ($view === 'summary') {
         csv_download("attendance-summary_{$from}_to_{$to}.csv",
-            ['Staff ID', 'Name', 'Department', 'Type', 'Working days', 'On time', 'Late', 'Leave', 'No record', 'Total minutes late', 'Hours worked'],
-            array_map(fn($x) => [$x['s']['staff_id'], $x['s']['name'], $x['s']['dept'] ?? '',
+            ['Staff ID', 'Name', 'Designation', 'Department', 'Type', 'Working days', 'On time', 'Late', 'Leave', 'No record', 'Total minutes late', 'Hours worked'],
+            array_map(fn($x) => [$x['s']['staff_id'], $x['s']['name'], $x['s']['designation'], $x['s']['dept'] ?? '',
                 $x['s']['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching', $dayCount,
                 $x['present'], $x['late'], $x['leave'], $x['absent'], $x['late_min'], round($x['worked'] / 60, 1)], $summary));
     }
     csv_download("attendance-detail_{$from}_to_{$to}.csv",
-        ['Date', 'Staff ID', 'Name', 'Department', 'Check-in', 'Check-out', 'Hours worked', 'Status', 'Minutes late', 'Source', 'Remarks'],
-        array_map(fn($x) => [$x['r']['att_date'], $x['s']['staff_id'], $x['s']['name'], $x['s']['dept'] ?? '',
+        ['Date', 'Staff ID', 'Name', 'Designation', 'Department', 'Check-in', 'Check-out', 'Hours worked', 'Status', 'Minutes late', 'Source', 'Remarks'],
+        array_map(fn($x) => [$x['r']['att_date'], $x['s']['staff_id'], $x['s']['name'], $x['s']['designation'], $x['s']['dept'] ?? '',
             substr((string)$x['r']['check_in'], 0, 5), substr((string)$x['r']['check_out'], 0, 5),
             ($m = net_minutes($x['r']['check_in'], $x['r']['check_out'])) === null ? '' : round($m / 60, 2),
             $x['r']['status'], $x['r']['late_minutes'], $x['r']['source'], $x['r']['remarks']], $detail));
@@ -122,7 +122,7 @@ render_header('Attendance Reports', 'reports');
     <?php if (!$summary): ?><tr><td colspan="9" class="empty">No staff match these filters.</td></tr><?php endif; ?>
     <?php foreach ($summary as $x): ?>
       <tr>
-        <td><strong><?= e($x['s']['name']) ?></strong> <span class="small muted"><?= e($x['s']['staff_id']) ?></span></td>
+        <td><strong><?= e($x['s']['name']) ?></strong> <span class="small muted"><?= e($x['s']['staff_id']) ?></span><?= $x['s']['designation'] !== '' ? '<div class="small muted">' . e($x['s']['designation']) . '</div>' : '' ?></td>
         <td><?= e($x['s']['dept'] ?? '—') ?></td>
         <td><?= $x['s']['staff_type'] === 'teaching' ? 'Teaching' : 'Non-teaching' ?></td>
         <td><?= $x['present'] ?></td>
@@ -143,7 +143,7 @@ render_header('Attendance Reports', 'reports');
     <?php foreach ($detail as $x): $r = $x['r']; ?>
       <tr>
         <td class="nowrap"><?= e(fmt_date($r['att_date'])) ?></td>
-        <td><strong><?= e($x['s']['name']) ?></strong> <span class="small muted"><?= e($x['s']['staff_id']) ?></span></td>
+        <td><strong><?= e($x['s']['name']) ?></strong> <span class="small muted"><?= e($x['s']['staff_id']) ?></span><?= $x['s']['designation'] !== '' ? '<div class="small muted">' . e($x['s']['designation']) . '</div>' : '' ?></td>
         <td><?= e($x['s']['dept'] ?? '—') ?></td>
         <td><?= e(fmt_time($r['check_in'])) ?></td>
         <td><?= e(fmt_time($r['check_out'])) ?></td>
